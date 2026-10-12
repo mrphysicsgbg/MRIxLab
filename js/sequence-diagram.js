@@ -118,17 +118,19 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
   if (roiPlot) {
     const { trace, means, signedMeans = new Map() } = roiPlot;
     const signed = model.kind === 'IR';
-    const finite = trace.curves.flatMap(curve => Array.from(signed ? [...curve.values, ...curve.signedValues] : curve.values).filter(Number.isFinite));
+    const finite = trace.curves.flatMap(curve => Array.from(signed ? [...curve.values, ...curve.signedValues,
+      ...(curve.longitudinalValues ?? []), ...(curve.signedLongitudinalValues ?? []),
+      curve.longitudinalBeforeExcitation?.magnitude, curve.longitudinalBeforeExcitation?.signed] : curve.values).filter(Number.isFinite));
     finite.push(...Array.from(means.values()).filter(Number.isFinite));
     const maximum = Math.max(0.001, ...finite) * 1.08;
     const minimum = signed ? Math.min(-0.001, ...finite) * 1.08 : 0;
     // Keep both plots on the timing diagram's linear time axis and amplitude
-    // scale. Include TI in both: longitudinal recovery ends where excitation
-    // transfers it to the initial transverse signal.
+    // scale. Both components span the full window, with an instantaneous
+    // transfer of longitudinal magnetization at the 90-degree excitation.
     const charts = signed ? [
-      { component: 'longitudinal', bottom: 527.5, label: 'Longitudinal magnetization (Mz)', includes: time => time <= model.excitation },
-      { component: 'transverse', bottom: 755, label: 'Transversal magnetization (Mxy)', includes: time => time >= model.excitation },
-    ] : [{ component: 'transverse', bottom: 650, label: 'Transversal magnetization (Mxy)', includes: () => true }];
+      { component: 'longitudinal', bottom: 527.5, label: 'Longitudinal magnetization (Mz)' },
+      { component: 'transverse', bottom: 755, label: 'Transversal magnetization (Mxy)' },
+    ] : [{ component: 'transverse', bottom: 650, label: 'Transversal magnetization (Mxy)' }];
     const plotHeight = signed ? 122.5 : 245;
     for (const chart of charts) {
       const y = value => chart.bottom - (value - minimum) / (maximum - minimum) * plotHeight;
@@ -152,7 +154,15 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
       const drawCurve = (values, magnitude, chart) => {
         let d = '', open = false;
         values.forEach((value, i) => {
-          if (!chart.includes(trace.values[i]) || !Number.isFinite(value)) { open = false; return; }
+          if (!Number.isFinite(value)) { open = false; return; }
+          if (signed && trace.values[i] === model.excitation) {
+            const before = chart.component === 'longitudinal'
+              ? curve.longitudinalBeforeExcitation?.[magnitude ? 'magnitude' : 'signed'] : 0;
+            if (Number.isFinite(before)) {
+              d += `${open ? 'L' : 'M'} ${axis.x(model.excitation).toFixed(3)} ${chart.y(before).toFixed(3)} `;
+              open = true;
+            }
+          }
           d += `${open ? 'L' : 'M'} ${axis.x(trace.values[i]).toFixed(3)} ${chart.y(value).toFixed(3)} `;
           open = true;
         });
@@ -161,8 +171,8 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
           'data-signal': magnitude ? 'magnitude' : 'signed', 'data-component': chart.component, 'data-roi': curve.region.slot }));
       };
       for (const chart of charts) {
-        drawCurve(curve.values, true, chart);
-        if (signed) drawCurve(curve.signedValues, false, chart);
+        drawCurve(chart.component === 'longitudinal' ? curve.longitudinalValues : curve.values, true, chart);
+        if (signed) drawCurve(chart.component === 'longitudinal' ? curve.signedLongitudinalValues : curve.signedValues, false, chart);
       }
       const mean = means.get(curve.region.slot);
       const signedMean = signedMeans.get(curve.region.slot);
@@ -187,7 +197,7 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
           svg.append(node('circle', { cx: legendX + 18, cy: legendY, r: 4,
             fill: magnitude ? 'var(--field)' : curve.region.color, stroke: curve.region.color,
             'stroke-width': 2, class: 'roi-legend-marker', 'data-signal': magnitude ? 'magnitude' : 'signed' }));
-          text(legendX + 45, legendY + 4, magnitude ? 'Magnitude' : 'Signed + noise', 'diagram-text', 'start');
+          text(legendX + 45, legendY + 4, magnitude ? 'Magnitude' : 'Signed (Mxy + noise)', 'diagram-text', 'start');
         }
       } else {
         svg.append(node('line', { x1: legendX, x2: legendX + 18, y1: 749, y2: 749, stroke: curve.region.color, 'stroke-width': 3 }));
@@ -218,6 +228,6 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
     }
     text(x, roiPlot ? signalBottom + 26 : 410, '⋯');
   }
-  return [...model.warnings, ...(roiPlot ? [model.kind === 'IR' ? 'The upper plot shows Longitudinal magnetization before TI; the lower plot shows Transversal magnetization after TI. The dotted vertical line marks the 90° excitation at TI. Longitudinal recovery is not a measured transverse signal. After TI they use the reference image equation with fixed voxel noise; magnitude is averaged per voxel. Sampling is at TI + TE.' : 'ROI curves show the reference equations’ transverse evolution after excitation, with fixed voxel noise. The dots at TE match the image before grayscale normalization.'] : []), ...(axis.segments.some(item => item.compressed)
+  return [...model.warnings, ...(roiPlot ? [model.kind === 'IR' ? 'The upper plot shows longitudinal magnetization dropping to zero at the fixed 90° excitation at TI, then recovering toward equilibrium with T1. The lower plot shows zero transverse magnetization before TI and a jump at excitation, followed by the reference image equation with fixed voxel noise. Longitudinal magnetization excludes receiver noise. Magnitude is averaged per voxel. Sampling is at TI + TE.' : 'ROI curves show the reference equations’ transverse evolution after excitation, with fixed voxel noise. The dots at TE match the image before grayscale normalization.'] : []), ...(axis.segments.some(item => item.compressed)
     ? ['Long delays are compressed at the // marks; use the labeled times for exact intervals.'] : [])];
 }

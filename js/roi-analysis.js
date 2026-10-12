@@ -45,9 +45,8 @@ export function meanSigned(signal, noise, noiseFree = false) {
   return signal.reduce((sum, value, i) => sum + value + (noiseFree ? 0 : noise[i]), 0) / signal.length;
 }
 
-// IR starts at inversion: longitudinal recovery until TI, then transverse decay.
-// The finite-TR initial condition makes the two segments continuous at excitation
-// and preserves the reference image equation exactly at TI + TE.
+// IR uses a fixed 90-degree excitation: Mz drops to zero at TI and recovers
+// toward rho, while Mxy is zero before TI and then follows the image equation.
 export function traceRegions(sequence, parameters, regions, noiseFree, samples = 121) {
   const inversion = sequence.shortLabel === 'IR';
   const excitation = inversion ? parameters.TI : 0;
@@ -57,17 +56,36 @@ export function traceRegions(sequence, parameters, regions, noiseFree, samples =
     ...Array.from({ length: samples }, (_, i) => excitation + i / (samples - 1) * end), excitation + parameters.TE,
   ])].sort((a, b) => a - b));
   const params = { ...parameters };
-  const curves = regions.map(region => ({ region, values: new Float64Array(values.length), signedValues: new Float64Array(values.length) }));
+  const curves = regions.map(region => ({ region, values: new Float64Array(values.length), signedValues: new Float64Array(values.length),
+    ...(inversion ? { longitudinalValues: new Float64Array(values.length), signedLongitudinalValues: new Float64Array(values.length) } : {}),
+  }));
   for (let i = 0; i < values.length; i++) {
     params.TE = values[i] - excitation;
     for (const curve of curves) {
       const { maps, buffer } = curve.region;
-      if (values[i] < excitation) {
+      if (inversion) {
         for (let j = 0; j < buffer.length; j++) {
           const t1 = maps.T1[j] === 0 ? 1 : maps.T1[j];
-          buffer[j] = maps.Rho[j] * (1 - (2 - Math.exp(-(parameters.TR - excitation) / t1)) * Math.exp(-values[i] / t1));
+          buffer[j] = values[i] < excitation
+            ? maps.Rho[j] * (1 - (2 - Math.exp(-(parameters.TR - excitation) / t1)) * Math.exp(-values[i] / t1))
+            : maps.Rho[j] * (1 - Math.exp(-(values[i] - excitation) / t1));
         }
-      } else sequence.simulate(maps, params, buffer);
+        // Mz is a magnetization model, not a noisy receive-channel measurement.
+        curve.longitudinalValues[i] = meanMagnitude(buffer, curve.region.noise, true);
+        curve.signedLongitudinalValues[i] = meanSigned(buffer, curve.region.noise, true);
+        if (values[i] === excitation) {
+          sequence.simulate(maps, { ...parameters, TE: 0 }, buffer);
+          curve.longitudinalBeforeExcitation = {
+            magnitude: meanMagnitude(buffer, curve.region.noise, true),
+            signed: meanSigned(buffer, curve.region.noise, true),
+          };
+        }
+      }
+      if (values[i] < excitation) {
+        curve.values[i] = curve.signedValues[i] = 0;
+        continue;
+      }
+      sequence.simulate(maps, params, buffer);
       curve.values[i] = meanMagnitude(curve.region.buffer, curve.region.noise, noiseFree);
       curve.signedValues[i] = meanSigned(curve.region.buffer, curve.region.noise, noiseFree);
     }

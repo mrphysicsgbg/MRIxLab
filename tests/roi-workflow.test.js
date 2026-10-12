@@ -219,7 +219,9 @@ test('IR stacks longitudinal above transverse while preserving linear timing and
     globalThis.document = { createElementNS: (_, tag) => new Node(tag) };
     const parameters = { TR: 5, TE: 0.08, TI: 1.2 };
     const plot = { trace: { values: new Float64Array([0, 1.2, 1.28, 1.45]), curves: [{
-      region: { slot: 0, color: '#ffbc55', label: 'Test ROI' }, values: new Float64Array([0.8, 0.6, 0.4, 0.1]), signedValues: new Float64Array([-0.8, 0.6, 0.4, 0.1]),
+      region: { slot: 0, color: '#ffbc55', label: 'Test ROI' }, values: new Float64Array([0, 0.6, 0.4, 0.1]), signedValues: new Float64Array([0, 0.6, 0.4, 0.1]),
+      longitudinalValues: new Float64Array([0.8, 0, 0.1, 0.2]), signedLongitudinalValues: new Float64Array([-0.8, 0, 0.1, 0.2]),
+      longitudinalBeforeExcitation: { magnitude: 0.6, signed: 0.6 },
     }] }, means: new Map([[0, 0.4]]), signedMeans: new Map([[0, 0.4]]) };
     const svg = new Node('svg');
     renderSequenceDiagram(svg, sequences.IR, parameters, plot);
@@ -246,12 +248,17 @@ test('IR stacks longitudinal above transverse while preserving linear timing and
     const coordinates = component => curves.find(node => node.attributes['data-signal'] === 'signed' && node.attributes['data-component'] === component).attributes.d.match(/[ML] ([\d.]+) ([\d.]+)/g).map(point => point.split(' ').slice(1).map(Number));
     const longitudinal = coordinates('longitudinal');
     const transverse = coordinates('transverse');
-    assert.equal(longitudinal.length, 2, 'longitudinal stops at TI');
-    assert.equal(transverse.length, 3, 'transverse begins at TI');
+    assert.equal(longitudinal.length, 5, 'longitudinal includes the excitation drop and post-excitation recovery');
+    assert.equal(transverse.length, 5, 'transverse includes the zero baseline and excitation jump');
     assert.equal(longitudinal[0][0], 110);
-    assert.equal(longitudinal.at(-1)[0], transverse[0][0], 'both plots share the excitation time');
+    assert.equal(longitudinal[1][0], transverse[1][0], 'both plots share the excitation time');
+    assert.equal(longitudinal[1][0], longitudinal[2][0], 'longitudinal drops instantaneously at TI');
+    assert.equal(transverse[1][0], transverse[2][0], 'transverse jumps instantaneously at TI');
+    assert.equal(transverse[0][1], transverse[1][1], 'transverse stays at zero before excitation');
+    assert.equal(longitudinal[2][1] - transverse[1][1], -227.5, 'post-excitation Mz and pre-excitation Mxy are both zero');
+    assert.ok(longitudinal.at(-1)[1] < longitudinal[2][1], 'longitudinal recovers upward after excitation');
     const tiLine = svg.children.find(node => node.attributes.class === 'diagram-ti-marker');
-    assert.ok(Math.abs(Number(tiLine.attributes.x1) - transverse[0][0]) < 0.001, 'TI marker aligns with the 90-degree pulse and both plot boundaries');
+    assert.ok(Math.abs(Number(tiLine.attributes.x1) - transverse[1][0]) < 0.001, 'TI marker aligns with the 90-degree pulse and both component jumps');
     assert.equal(tiLine.attributes.x1, tiLine.attributes.x2);
     assert.equal(tiLine.attributes.y1, '103');
     assert.equal(tiLine.attributes.y2, '755', 'TI marker spans sequence tracks and both graphs');
@@ -259,8 +266,8 @@ test('IR stacks longitudinal above transverse while preserving linear timing and
     assert.ok(longitudinal.every(point => point[1] >= 405 && point[1] <= 527.5), 'upper plot has half its former 245-unit height');
     assert.ok(transverse.every(point => point[1] >= 632.5 && point[1] <= 755), 'lower plot has half its former 245-unit height');
     assert.ok(Math.max(...longitudinal.map(point => point[1])) < Math.min(...transverse.map(point => point[1])), 'longitudinal graph is above transverse');
-    assert.ok(Math.abs((transverse[1][0] - transverse[0][0]) / (longitudinal[1][0] - longitudinal[0][0]) - 0.08 / 1.2) < 1e-4);
-    assert.ok(Math.abs(Number(marker.attributes.cy) - transverse[1][1]) < 0.001, 'image mean belongs to transverse graph');
+    assert.ok(Math.abs((transverse[3][0] - transverse[2][0]) / (longitudinal[1][0] - longitudinal[0][0]) - 0.08 / 1.2) < 1e-4);
+    assert.ok(Math.abs(Number(marker.attributes.cy) - transverse[3][1]) < 0.001, 'image mean belongs to transverse graph');
     assert.ok(svg.children.some(node => node.textContent?.includes('Longitudinal magnetization (Mz)')));
     assert.ok(svg.children.some(node => node.textContent?.includes('Transversal magnetization (Mxy)')));
     const axisLabels = svg.children.filter(node => node.attributes.class === 'diagram-text roi-axis-label');

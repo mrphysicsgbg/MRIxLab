@@ -71,7 +71,7 @@ test('temporal traces and TE samples match independent full-slice simulation on 
 });
 
 
-test('IR starts negative at inversion and joins the reference signal continuously at TI', () => {
+test('IR separates longitudinal recovery from transverse signal at the 90-degree excitation', () => {
   const maps = { Rho: new Float32Array([1, 0.8]), T1: new Float32Array([1, 0]),
     T2: new Float32Array([0.1, 0.2]), T2Star: new Float32Array([0.08, 0.1]) };
   const region = { maps, noise: new Float32Array([0.01, -0.02]), buffer: new Float32Array(2) };
@@ -87,11 +87,43 @@ test('IR starts negative at inversion and joins the reference signal continuousl
           const t1 = maps.T1[j] || 1;
           expected[j] = maps.Rho[j] * (1 - (2 - Math.exp(-(params.TR - params.TI) / t1)) * Math.exp(-time / t1));
         }
-      } else sequences.IR.simulate(maps, { ...params, TE: time - params.TI }, expected);
-      assert.ok(Math.abs(trace.curves[0].signedValues[i] - meanSigned(expected, region.noise, noiseFree)) < 1e-7);
-      assert.ok(Math.abs(trace.curves[0].values[i] - meanMagnitude(expected, region.noise, noiseFree)) < 1e-7);
+      }
+      const curve = trace.curves[0];
+      if (time === params.TI) {
+        assert.ok(Math.abs(curve.longitudinalBeforeExcitation.signed - meanSigned(expected, region.noise, true)) < 1e-7);
+        assert.ok(Math.abs(curve.longitudinalBeforeExcitation.magnitude - meanMagnitude(expected, region.noise, true)) < 1e-7);
+      }
+      if (time >= params.TI) {
+        for (let j = 0; j < 2; j++) expected[j] = maps.Rho[j] * (1 - Math.exp(-(time - params.TI) / (maps.T1[j] || 1)));
+      }
+      assert.ok(Math.abs(curve.signedLongitudinalValues[i] - meanSigned(expected, region.noise, true)) < 1e-7);
+      assert.ok(Math.abs(curve.longitudinalValues[i] - meanMagnitude(expected, region.noise, true)) < 1e-7);
+      if (time < params.TI) {
+        assert.equal(curve.values[i], 0);
+        assert.equal(curve.signedValues[i], 0);
+      } else {
+        sequences.IR.simulate(maps, { ...params, TE: time - params.TI }, expected);
+        assert.ok(Math.abs(curve.signedValues[i] - meanSigned(expected, region.noise, noiseFree)) < 1e-7);
+        assert.ok(Math.abs(curve.values[i] - meanMagnitude(expected, region.noise, noiseFree)) < 1e-7);
+      }
     });
-    assert.ok(trace.curves[0].signedValues[0] < 0);
-    assert.ok(trace.curves[0].values[0] > 0);
+    const curve = trace.curves[0];
+    assert.ok(curve.signedLongitudinalValues[0] < 0);
+    assert.ok(curve.longitudinalValues[0] > 0);
+    const excitationIndex = trace.values.indexOf(params.TI);
+    assert.equal(curve.signedLongitudinalValues[excitationIndex], 0);
+    assert.equal(curve.longitudinalValues[excitationIndex], 0);
+    assert.ok(curve.signedLongitudinalValues.at(-1) > 0);
   }
+});
+
+test('post-excitation longitudinal recovery approaches equilibrium and handles TI=0', () => {
+  const maps = { Rho: new Float32Array([1]), T1: new Float32Array([0.1]),
+    T2: new Float32Array([0.1]), T2Star: new Float32Array([0.08]) };
+  const region = { maps, noise: new Float32Array([0.2]), buffer: new Float32Array(1) };
+  const trace = traceRegions(sequences.IR, { TR: 5, TI: 0, TE: 1 }, [region], false, 5);
+  const mz = trace.curves[0].signedLongitudinalValues;
+  assert.equal(mz[0], 0, '90-degree excitation leaves zero longitudinal magnetization even with receiver noise');
+  assert.ok(mz.every((value, i) => i === 0 || value >= mz[i - 1]));
+  assert.ok(Math.abs(mz.at(-1) - 1) < 0.0001);
 });
