@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoiController } from '../js/rois.js';
-import { renderSequenceDiagram } from '../js/sequence-diagram.js';
-import { sequences, defaultParameters } from '../js/sequences.js';
+import { renderSequenceDiagram, createTimeAxis } from '../js/sequence-diagram.js';
+import { sequences, defaultParameters, signalDuration } from '../js/sequences.js';
 import { traceRegions } from '../js/roi-analysis.js';
 
 // A small DOM harness exercises pointer capture and UI events without a browser.
@@ -80,12 +80,12 @@ test('compressed delay marks stay fixed before the next excitation as TE changes
               trace: traceRegions(sequence, parameters, [], true), means: new Map(),
             } : null);
             const breaks = svg.children.filter(node => node.attributes.class === 'diagram-gap-mask' && Number(node.attributes.y) < 320).map(node => node.attributes.x);
-            const nextPulse = svg.children.filter(node => node.attributes.class === 'diagram-rf').at(-1).attributes.d;
+            const nextPulse = Number(svg.children.filter(node => node.attributes.class === 'diagram-rf').at(-1).attributes['data-center-x']);
             expectedBreaks ??= breaks;
             expectedNextPulse ??= nextPulse;
             assert.equal(breaks.length, 4);
             assert.deepEqual(breaks, expectedBreaks);
-            assert.equal(nextPulse, expectedNextPulse);
+            assert.ok(Math.abs(nextPulse - expectedNextPulse) < 1e-9);
             echoes.add(svg.children.find(node => node.attributes.class === 'diagram-echo-marker').attributes.x1);
             assert.ok(Number(breaks[0]) > 750, 'breaks remain at the right end');
           }
@@ -93,6 +93,65 @@ test('compressed delay marks stay fixed before the next excitation as TE changes
       }
       assert.equal(echoes.size, 4, 'echo still moves with TE');
     }
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
+  }
+});
+
+test('readable RF, gradient and echo widths retain their timing anchors', () => {
+  const previousDocument = globalThis.document;
+  try {
+    globalThis.document = { createElementNS: (_, tag) => new Node(tag) };
+    for (const sequence of Object.values(sequences)) {
+      const defaults = defaultParameters(sequence);
+      const cases = [defaults, { ...defaults, TR: 0.1 }, { ...defaults, TR: 10, TI: 1.2 }, { ...defaults, TR: 10, TI: 4.5 }];
+      for (const parameters of cases) {
+        const model = sequence.diagram(parameters);
+        model.signalStart = 0;
+        model.signalEnd = model.excitation + signalDuration(sequence, parameters);
+        const axis = createTimeAxis(model);
+        const svg = new Node('svg');
+        renderSequenceDiagram(svg, sequence, parameters);
+        const waveforms = svg.children.filter(node => ['diagram-rf', 'diagram-gradient', 'diagram-signal'].includes(node.attributes.class));
+        for (const waveform of waveforms) {
+          const points = [...waveform.attributes.d.matchAll(/[ML] ([^ ]+) ([^ ]+)/g)].map(match => [Number(match[1]), Number(match[2])]);
+          assert.ok(points.flat().every(Number.isFinite));
+          const width = points.at(-1)[0] - points[0][0];
+          const minimum = waveform.attributes.class === 'diagram-rf' ? 6 : waveform.attributes.class === 'diagram-signal' ? 16 : 4;
+          assert.ok(width >= minimum, 'schematic waveform stays visible even at long TI');
+          assert.ok(Math.abs(points[0][0] - Number(waveform.attributes['data-display-start'])) < 1e-9);
+          assert.ok(Math.abs(points.at(-1)[0] - Number(waveform.attributes['data-display-end'])) < 1e-9);
+          if (waveform.attributes.class === 'diagram-signal') {
+            assert.ok(points.every(point => point[1] <= 375), 'magnitude echo never becomes negative');
+            assert.ok(Math.abs(points[40][0] - axis.x(model.echo)) < 1e-9, 'echo peaks at TE');
+          }
+        }
+        const rf = svg.children.filter(node => node.attributes.class === 'diagram-rf');
+        for (const [index, waveform] of rf.entries()) {
+          const points = [...waveform.attributes.d.matchAll(/[ML] ([^ ]+) ([^ ]+)/g)];
+          const pulse = model.rf[index];
+          assert.ok(Math.abs(Number(points[10][1]) - axis.x(pulse.time)) < 1e-9);
+        }
+      }
+    }
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
+  }
+});
+
+test('visible RF widths get narrower smoothly as the IR time window grows', () => {
+  const previousDocument = globalThis.document;
+  try {
+    globalThis.document = { createElementNS: (_, tag) => new Node(tag) };
+    const widths = [0, 1.2, 2.5, 4.5].map(TI => {
+      const svg = new Node('svg');
+      renderSequenceDiagram(svg, sequences.IR, { TR: 10, TE: 0.08, TI });
+      const pulse = svg.children.find(node => node.attributes.class === 'diagram-rf');
+      return Number(pulse.attributes['data-display-end']) - Number(pulse.attributes['data-display-start']);
+    });
+    assert.ok(widths[0] > 11.9 && widths[0] < 12.1, 'default timing restores the previous readable RF size');
+    assert.ok(widths.every((width, i) => i === 0 || width < widths[i - 1]), 'widths continue changing rather than flattening at a hard clamp');
+    assert.ok(widths.at(-1) > 7, 'long-TI pulses remain readable');
   } finally {
     if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
   }

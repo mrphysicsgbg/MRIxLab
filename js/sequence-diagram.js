@@ -9,9 +9,13 @@ const CYCLE_END_PADDING = 18;
 
 // Long TI/TR delays are explicitly broken so millisecond-scale events stay visible.
 export function createTimeAxis(model) {
-  const maximum = Math.max(model.echo, model.repetition, model.signalEnd ?? 0, ...model.rf.map(pulse => pulse.time));
+  const nextPulse = model.rf.find(pulse => pulse.label === 'Next cycle');
+  const nextHalfDuration = (nextPulse?.duration ?? 0) / 2;
+  const nextPulseStart = model.repetition - nextHalfDuration;
+  const maximum = Math.max(model.echo, model.repetition, model.signalEnd ?? 0, ...model.rf.map(pulse => pulse.time + (pulse.duration ?? 0) / 2));
   const end = maximum + Math.max(model.TE * 0.25, 0.001);
-  const times = [...new Set([0, end, model.echo, ...(model.signalEnd === undefined ? [] : [model.signalEnd]), ...model.rf.map(pulse => pulse.time)])].sort((a, b) => a - b);
+  const times = [...new Set([0, end, model.echo, ...(model.signalEnd === undefined ? [] : [model.signalEnd]),
+    ...(nextPulseStart > 0 ? [nextPulseStart] : []), ...model.rf.map(pulse => pulse.time)])].sort((a, b) => a - b);
   const cap = Math.max(model.TE * 2, 0.02);
   const segments = times.slice(1).map((time, i) => {
     const duration = time - times[i];
@@ -20,25 +24,29 @@ export function createTimeAxis(model) {
     return { start: times[i], end: time, compressed, weight: compressed ? cap * 0.6 : duration };
   });
   // Reserve a fixed strip for a compressed delay before the next cycle and
-  // fixed padding after it. This anchors both the break and next RF pulse
-  // while the earlier events scale with the selected timing parameters.
-  const delayIndex = segments.findIndex(segment => segment.compressed && segment.end === model.repetition);
-  const fixedTail = delayIndex >= 0 && delayIndex === segments.length - 2;
+  // fixed padding after its RF center. RF itself retains the normal time scale.
+  const delayIndex = segments.findIndex(segment => segment.compressed && segment.end === nextPulseStart);
+  const fixedTail = delayIndex >= 0 && delayIndex === segments.length - (nextHalfDuration > 0 ? 3 : 2);
   const flexibleSegments = fixedTail ? segments.slice(0, delayIndex) : segments;
   const weight = flexibleSegments.reduce((sum, segment) => sum + segment.weight, 0);
   const flexibleWidth = RIGHT - LEFT - (fixedTail ? COMPRESSED_DELAY_WIDTH + CYCLE_END_PADDING : 0);
+  const timeScale = flexibleWidth / (weight + (fixedTail ? nextHalfDuration : 0));
   let position = LEFT;
   for (const [index, segment] of segments.entries()) {
     segment.left = position;
-    position += fixedTail && index >= delayIndex
-      ? (index === delayIndex ? COMPRESSED_DELAY_WIDTH : CYCLE_END_PADDING)
-      : segment.weight / weight * flexibleWidth;
+    if (fixedTail && index === delayIndex) position += COMPRESSED_DELAY_WIDTH;
+    else if (fixedTail && index === segments.length - 1) {
+      // Preserve the same seconds-to-pixels scale on both sides of the next RF
+      // pulse; only the empty delay is compressed.
+      segment.end = model.repetition + CYCLE_END_PADDING / timeScale;
+      position = RIGHT;
+    } else position += segment.weight * timeScale;
     segment.right = position;
   }
   return {
     segments,
     x(time) {
-      if (time <= 0) return LEFT;
+      // Pulse centers define t=0; draw their leading halves before that center.
       const segment = segments.find(item => time <= item.end) ?? segments.at(-1);
       return segment.left + (time - segment.start) / (segment.end - segment.start) * (segment.right - segment.left);
     },
@@ -63,12 +71,16 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
   model.signalStart = 0;
   model.signalEnd = model.excitation + signalDuration(sequence, parameters);
   const axis = createTimeAxis(model);
+  // Blend a readable schematic size with the local time scale. The square root
+  // keeps long-TI waveforms legible while preserving continuous width changes.
+  const localScale = (axis.x(model.excitation + 0.001) - axis.x(model.excitation)) / 0.001;
+  const symbolScale = 0.5 + 0.5 * Math.sqrt(localScale / 2560);
   svg.setAttribute('viewBox', roiPlot ? (model.kind === 'IR' ? '0 0 900 935' : '0 0 900 780') : '0 0 900 430');
   svg.setAttribute('aria-label', `${sequence.label}: TR ${parameters.TR} seconds, TE ${parameters.TE} seconds${model.kind === 'IR' ? `, TI ${parameters.TI} seconds` : ''}${model.kind === 'GRE' ? `, flip angle ${parameters.FA} degrees` : ''}. Simplified sequence diagram.`);
   svg.append(node('title', {}, `${sequence.label} pulse sequence`));
   const line = (x1, y1, x2, y2, className = 'diagram-baseline') => svg.append(node('line', { x1, y1, x2, y2, class: className }));
   const text = (x, y, content, className = 'diagram-text', anchor = 'middle') => svg.append(node('text', { x, y, class: className, 'text-anchor': anchor }, content));
-  const path = (d, className) => svg.append(node('path', { d, class: className }));
+  const path = (d, className, attributes = {}) => svg.append(node('path', { d, class: className, ...attributes }));
   const duration = (start, end, y, label) => {
     const a = axis.x(start), b = axis.x(end);
     line(a, y, b, y, 'diagram-timing');
@@ -93,28 +105,37 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
   for (const pulse of model.rf) {
     const x = axis.x(pulse.time);
     const height = pulse.angle / 180 * 40;
-    path(`M ${x - 6} 150 Q ${x} ${150 - height * 2} ${x + 6} 150`, 'diagram-rf');
+    let d = '';
+    for (let i = 0; i <= 20; i++) {
+      const fraction = i / 20;
+      d += `${i ? 'L' : 'M'} ${x + (fraction - 0.5) * 12 * symbolScale} ${150 - height * 4 * fraction * (1 - fraction)} `;
+    }
+    path(d, 'diagram-rf', { 'data-start': pulse.time - pulse.duration / 2,
+      'data-end': pulse.time + pulse.duration / 2, 'data-center-x': x,
+      'data-display-start': x - 6 * symbolScale, 'data-display-end': x + 6 * symbolScale });
     // The tallest (180°) pulse peaks at y=110; keep its text above the peak.
     const labelY = 150 - height - 9;
     text(x, labelY, `${pulse.angle.toFixed(pulse.angle % 1 ? 1 : 0)}°`, 'diagram-rf-label');
     if (pulse.label === 'Next cycle') text(x, 169, 'Next', 'diagram-text');
   }
-  const lobe = (a, b, y, height, className) => {
-    const start = Math.min(a, b), end = Math.max(a, b);
-    const ramp = Math.min(5, (end - start) / 4);
-    path(`M ${start} ${y} L ${start + ramp} ${y - height} L ${end - ramp} ${y - height} L ${end} ${y}`, className);
-  };
-  for (const pulse of model.rf.filter(item => item.label !== 'Next cycle' && item.label !== 'Inversion')) {
-    const x = axis.x(pulse.time);
-    lobe(x - 8, x + 8, 210, 23, 'diagram-gradient');
-  }
   const excitationX = axis.x(model.excitation);
+  const preparationX = axis.x(model.excitation + model.TE * 0.2);
+  for (const gradient of model.gradients) {
+    const y = { slice: 210, phase: 265, read: 320 }[gradient.track];
+    const height = gradient.amplitude * (gradient.track === 'phase' ? 20 : 23);
+    const rephaser = gradient.track === 'slice' && gradient.amplitude < 0;
+    const readout = gradient.track === 'read' && gradient.end === model.readout.end;
+    // Schematic preparation lobes are separated from excitation so widened
+    // symbols stay distinguishable. The slice rephaser abuts its select lobe.
+    const center = gradient.track === 'slice'
+      ? (rephaser ? excitationX + 12 * symbolScale : axis.x((gradient.start + gradient.end) / 2))
+      : readout ? axis.x(model.echo) : preparationX;
+    const width = (rephaser ? 8 : readout ? 32 : 16) * symbolScale;
+    const start = center - width / 2, end = center + width / 2, ramp = width / 4;
+    path(`M ${start} ${y} L ${start + ramp} ${y - height} L ${end - ramp} ${y - height} L ${end} ${y}`,
+      'diagram-gradient', { 'data-track': gradient.track, 'data-display-start': start, 'data-display-end': end });
+  }
   const echoX = axis.x(model.echo);
-  const phaseX = excitationX + (echoX - excitationX) * 0.2;
-  lobe(phaseX - 7, phaseX + 7, 265, 20, 'diagram-gradient');
-  // A dephasing lobe followed by readout illustrates GRE gradient reversal.
-  lobe(phaseX - 8, phaseX + 8, 320, model.kind === 'GRE' ? -23 : 23, 'diagram-gradient');
-  lobe(echoX - 22, echoX + 22, 320, 23, 'diagram-gradient');
   if (roiPlot) {
     const { trace, means, signedMeans = new Map() } = roiPlot;
     const signed = model.kind === 'IR';
@@ -213,21 +234,27 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
   let echoPath = '';
   for (let i = 0; i <= 80; i++) {
     const offset = (i - 40) / 40;
-    const x = echoX + offset * 27;
-    const y = 375 - amplitude * 27 * Math.exp(-4 * offset * offset) * Math.cos(offset * 8 * Math.PI);
+    const x = echoX + offset * 16 * symbolScale;
+    // A nonnegative magnitude envelope inside the readout, not a synthetic
+    // oscillating signed signal unrelated to the simulated tissue equations.
+    const envelope = (Math.exp(-4 * offset * offset) - Math.exp(-4)) / (1 - Math.exp(-4));
+    const y = 375 - amplitude * 27 * envelope;
     echoPath += `${i === 0 ? 'M' : 'L'} ${x} ${y} `;
   }
-  path(echoPath, 'diagram-signal');
+  path(echoPath, 'diagram-signal', { 'data-display-start': echoX - 16 * symbolScale, 'data-display-end': echoX + 16 * symbolScale });
   text(echoX, 410, `Echo at ${model.echo.toFixed(3)} s`);
   }
   for (const segment of axis.segments.filter(item => item.compressed)) {
-    const x = (segment.left + segment.right) / 2;
+    const x = segment.end === model.repetition - model.rf.at(-1).duration / 2
+      ? RIGHT - CYCLE_END_PADDING - COMPRESSED_DELAY_WIDTH / 2 : (segment.left + segment.right) / 2;
     for (const [, y] of tracks) {
       svg.append(node('rect', { x: x - 9, y: y - 5, width: 18, height: 10, class: 'diagram-gap-mask' }));
       path(`M ${x - 7} ${y + 4} l 5 -8 M ${x + 1} ${y + 4} l 5 -8`, 'diagram-break');
     }
     text(x, roiPlot ? signalBottom + 26 : 410, '⋯');
   }
-  return [...model.warnings, ...(roiPlot ? [model.kind === 'IR' ? 'The upper plot shows longitudinal magnetization dropping to zero at the fixed 90° excitation at TI, then recovering toward equilibrium with T1. The lower plot shows zero transverse magnetization before TI and a jump at excitation, followed by the reference image equation with fixed voxel noise. Longitudinal magnetization excludes receiver noise. Magnitude is averaged per voxel. Sampling is at TI + TE.' : 'ROI curves show the reference equations’ transverse evolution after excitation, with fixed voxel noise. The dots at TE match the image before grayscale normalization.'] : []), ...(axis.segments.some(item => item.compressed)
+  return [...model.warnings,
+    'Waveforms are widened for visibility. Their schematic widths scale smoothly with the time axis and retain a minimum visible size; do not read pulse or gradient durations from these widths. RF centers define TE and TI. Amplitudes are normalized. Signal equations use instantaneous RF rotations at pulse centers.',
+    ...(roiPlot ? [model.kind === 'IR' ? 'The upper plot shows longitudinal magnetization dropping to zero at the fixed 90° excitation at TI, then recovering toward equilibrium with T1. The lower plot shows zero transverse magnetization before TI and a jump at excitation, followed by the reference image equation with fixed voxel noise. Longitudinal magnetization excludes receiver noise. Magnitude is averaged per voxel. Sampling is at TI + TE.' : 'ROI curves show the reference equations’ transverse evolution after excitation, with fixed voxel noise. The dots at TE match the image before grayscale normalization.'] : ['The signal is a normalized magnitude echo illustration within the readout window; it is not a tissue simulation.']), ...(axis.segments.some(item => item.compressed)
     ? ['Long delays are compressed at the // marks; use the labeled times for exact intervals.'] : [])];
 }

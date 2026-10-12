@@ -17,11 +17,28 @@ function echoDiagram({ TR, TE, TI = 0, FA = 90 }, kind) {
     { time: excitation, angle: kind === 'GRE' ? FA : 90, label: 'Excitation' },
     ...(kind !== 'GRE' ? [{ time: excitation + TE / 2, angle: 180, label: 'Refocusing' }] : []),
     { time: TR, angle: inversion ? 180 : kind === 'GRE' ? FA : 90, label: 'Next cycle' },
+  ].map(pulse => ({ ...pulse, duration: 0.0004 }));
+  // Illustrative durations in seconds, independent of TE/TI and display scale.
+  // Equal RF durations make normalized pulse area proportional to flip angle.
+  const readout = { start: echo - 0.0004, end: echo + 0.0004, ramp: 0.0002 };
+  const gradients = [
+    ...rf.filter(pulse => ['Excitation', 'Refocusing'].includes(pulse.label)).map(pulse => ({
+      track: 'slice', start: pulse.time - 0.0004, end: pulse.time + 0.0004, ramp: 0.0002, amplitude: 1,
+    })),
+    // Rephase half the slice-select area accumulated after excitation center.
+    { track: 'slice', start: excitation + 0.0004, end: excitation + 0.0008, ramp: 0.0001, amplitude: -1 },
+    { track: 'phase', start: excitation + 0.0002, end: excitation + 0.0006, ramp: 0.0001, amplitude: 1 },
+    // Half the readout area: GRE uses opposite polarity; the SE/IR 180-degree
+    // pulse reverses the accumulated phase, so their prephaser has the same sign.
+    { track: 'read', start: excitation + 0.0002, end: excitation + 0.0006, ramp: 0.0001, amplitude: kind === 'GRE' ? -1 : 1 },
+    { track: 'read', ...readout, amplitude: 1 },
   ];
-  return { kind, excitation, echo, repetition: TR, rf, TE, TI,
+  return { kind, excitation, echo, repetition: TR, rf, gradients, readout, TE, TI,
     warnings: [
       ...(TR <= echo ? ['The echo reaches or exceeds the next cycle. Increase TR for a realizable timing order.'] : []),
       ...(inversion && TI === 0 ? ['At TI = 0 the inversion and excitation pulses coincide.'] : []),
+      ...(TR > echo && TR - echo < 0.0006 ? ['The readout overlaps the next RF pulse with the illustrative pulse durations. Increase TR.'] : []),
+      ...(inversion && TI > 0 && TI < 0.0004 ? ['Inversion and excitation RF pulses overlap with the illustrative pulse durations. Increase TI.'] : []),
     ],
   };
 }

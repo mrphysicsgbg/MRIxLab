@@ -46,3 +46,40 @@ test('long delays are marked as compressed and impossible timing is explained', 
   assert.ok(sequences.SE.diagram({ TR: 0, TE: 0.1 }).warnings.length > 0);
   assert.equal(sequences.IR.diagram({ TR: 0, TE: 0.1, TI: 0 }).warnings.length, 2);
 });
+
+test('illustrative gradients balance slice rephasing and the readout moment at the echo', () => {
+  const area = gradient => gradient.amplitude * (gradient.end - gradient.start - gradient.ramp);
+  for (const sequence of Object.values(sequences)) {
+    const params = defaultParameters(sequence);
+    const model = sequence.diagram(params);
+    const slice = model.gradients.filter(gradient => gradient.track === 'slice');
+    assert.ok(Math.abs(area(slice.at(-1)) + area(slice[0]) / 2) < 1e-12);
+    const [prephaser, readout] = model.gradients.filter(gradient => gradient.track === 'read');
+    const prephaserAtEcho = model.kind === 'GRE' ? area(prephaser) : -area(prephaser);
+    assert.ok(Math.abs(prephaserAtEcho + area(readout) / 2) < 1e-12);
+    assert.ok(Math.abs((readout.start + readout.end) / 2 - model.echo) < 1e-12);
+    const minimumTE = sequence.parameters.find(parameter => parameter.key === 'TE').min;
+    const shortest = sequence.diagram({ ...params, TE: minimumTE });
+    const [shortPrephaser, shortReadout] = shortest.gradients.filter(gradient => gradient.track === 'read');
+    assert.ok(shortPrephaser.end <= shortReadout.start + 1e-12);
+    const refocusing = shortest.rf.find(pulse => pulse.label === 'Refocusing');
+    if (refocusing) assert.ok(shortPrephaser.end < refocusing.time - refocusing.duration / 2);
+  }
+});
+
+test('finite RF pulse widths share the uncompressed time scale before and after the cycle break', () => {
+  const widths = [];
+  for (const TI of [0, 1.2, 4.5]) {
+    const model = sequences.IR.diagram({ TR: 10, TE: 0.08, TI });
+    model.signalStart = 0;
+    model.signalEnd = TI + 0.25;
+    const axis = createTimeAxis(model);
+    const width = pulse => axis.x(pulse.time + pulse.duration / 2) - axis.x(pulse.time - pulse.duration / 2);
+    const excitation = model.rf.find(pulse => pulse.label === 'Excitation');
+    const next = model.rf.at(-1);
+    assert.ok(Math.abs(width(next) - width(excitation)) < 1e-9);
+    assert.ok(Math.abs(axis.x(next.time) - 832) < 1e-9);
+    widths.push(width(excitation));
+  }
+  assert.ok(widths[0] > widths[1] && widths[1] > widths[2], 'the same RF duration gets narrower as the visible time window grows');
+});
