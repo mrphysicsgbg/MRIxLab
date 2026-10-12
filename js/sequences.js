@@ -1,6 +1,11 @@
 // Signal stays signed here. Magnitude, noise and windowing belong to the renderer.
-const TR = { key: 'TR', label: 'Repetition time', unit: 's', value: 1, min: 0, max: 20, step: 0.1 };
+const TR = { key: 'TR', label: 'Repetition time', unit: 's', value: 1, min: 0, max: 10, step: 0.1 };
 const TE = { key: 'TE', label: 'Echo time', unit: 's', value: 0.1, min: 0.005, max: 0.2, step: 0.001 };
+
+// Share the displayed signal duration between the timing diagram and ROI traces.
+export function signalDuration(sequence, parameters) {
+  return Math.max((sequence.parameters.find(parameter => parameter.key === 'TE')?.max ?? 0.2) * 1.25, parameters.TE);
+}
 
 // Place RF events relative to inversion, excitation, and echo.
 function echoDiagram({ TR, TE, TI = 0, FA = 90 }, kind) {

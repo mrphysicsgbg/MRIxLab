@@ -1,3 +1,5 @@
+import { signalDuration } from './sequences.js';
+
 // Pixel centers determine membership in a closed freehand polygon.
 export function rasterizePolygon(points, width, height) {
   if (points.length < 3) return new Uint32Array();
@@ -49,7 +51,7 @@ export function meanSigned(signal, noise, noiseFree = false) {
 export function traceRegions(sequence, parameters, regions, noiseFree, samples = 121) {
   const inversion = sequence.shortLabel === 'IR';
   const excitation = inversion ? parameters.TI : 0;
-  const end = Math.max((sequence.parameters.find(parameter => parameter.key === 'TE')?.max ?? 0.2) * 1.25, parameters.TE);
+  const end = signalDuration(sequence, parameters);
   const values = Float64Array.from([...new Set([
     ...(inversion ? Array.from({ length: samples }, (_, i) => i / (samples - 1) * excitation) : []),
     ...Array.from({ length: samples }, (_, i) => excitation + i / (samples - 1) * end), excitation + parameters.TE,

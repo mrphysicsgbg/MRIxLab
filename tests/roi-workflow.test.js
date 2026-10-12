@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoiController } from '../js/rois.js';
 import { renderSequenceDiagram } from '../js/sequence-diagram.js';
-import { sequences } from '../js/sequences.js';
+import { sequences, defaultParameters } from '../js/sequences.js';
+import { traceRegions } from '../js/roi-analysis.js';
 
 // A small DOM harness exercises pointer capture and UI events without a browser.
 class Node {
@@ -27,6 +28,75 @@ class Node {
   hasPointerCapture(pointer) { return this.pointer === pointer; }
   releasePointerCapture() { this.pointer = null; this.fire('lostpointercapture'); }
 }
+
+test('ROI selection preserves timing geometry and compression across slider boundaries', () => {
+  const previousDocument = globalThis.document;
+  try {
+    globalThis.document = { createElementNS: (_, tag) => new Node(tag) };
+    const timingGeometry = svg => svg.children.filter(node =>
+      ['diagram-rf', 'diagram-gradient', 'diagram-timing'].includes(node.attributes.class) ||
+      (node.attributes.class === 'diagram-gap-mask' && Number(node.attributes.y) < 320)
+    ).map(node => node.attributes);
+    for (const sequence of Object.values(sequences)) {
+      const defaults = defaultParameters(sequence);
+      const cases = [defaults, Object.fromEntries(sequence.parameters.map(parameter => [parameter.key, parameter.min]))];
+      for (const parameter of sequence.parameters) {
+        for (const value of [parameter.min, parameter.max]) cases.push({ ...defaults, [parameter.key]: value });
+      }
+      const echoPositions = [];
+      for (const parameters of cases) {
+        const plain = new Node('svg'), withRoi = new Node('svg');
+        renderSequenceDiagram(plain, sequence, parameters);
+        renderSequenceDiagram(withRoi, sequence, parameters, {
+          trace: traceRegions(sequence, parameters, [], true), means: new Map(),
+        });
+        assert.deepEqual(timingGeometry(plain), timingGeometry(withRoi), `${sequence.shortLabel}: ${JSON.stringify(parameters)}`);
+        const echoX = svg => svg.children.find(node => node.attributes.class === 'diagram-echo-marker').attributes.x1;
+        assert.equal(echoX(plain), echoX(withRoi));
+        assert.ok(Number.isFinite(Number(echoX(plain))));
+        if (parameters.TR === defaults.TR && parameters.TE !== defaults.TE) echoPositions.push(echoX(plain));
+      }
+      assert.equal(new Set(echoPositions).size, 2, 'TE minimum and maximum place the echo at different positions');
+    }
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
+  }
+});
+
+test('compressed delay marks stay fixed before the next excitation as TE changes', () => {
+  const previousDocument = globalThis.document;
+  try {
+    globalThis.document = { createElementNS: (_, tag) => new Node(tag) };
+    for (const sequence of Object.values(sequences)) {
+      const parameter = sequence.parameters.find(parameter => parameter.key === 'TE');
+      let expectedBreaks, expectedNextPulse;
+      const echoes = new Set();
+      for (const TR of [5, 20]) {
+        for (const TE of [parameter.min, 0.05, 0.1, parameter.max]) {
+          const parameters = { ...defaultParameters(sequence), TR, TE };
+          for (const withRoi of [false, true]) {
+            const svg = new Node('svg');
+            renderSequenceDiagram(svg, sequence, parameters, withRoi ? {
+              trace: traceRegions(sequence, parameters, [], true), means: new Map(),
+            } : null);
+            const breaks = svg.children.filter(node => node.attributes.class === 'diagram-gap-mask' && Number(node.attributes.y) < 320).map(node => node.attributes.x);
+            const nextPulse = svg.children.filter(node => node.attributes.class === 'diagram-rf').at(-1).attributes.d;
+            expectedBreaks ??= breaks;
+            expectedNextPulse ??= nextPulse;
+            assert.equal(breaks.length, 4);
+            assert.deepEqual(breaks, expectedBreaks);
+            assert.equal(nextPulse, expectedNextPulse);
+            echoes.add(svg.children.find(node => node.attributes.class === 'diagram-echo-marker').attributes.x1);
+            assert.ok(Number(breaks[0]) > 750, 'breaks remain at the right end');
+          }
+        }
+      }
+      assert.equal(echoes.size, 4, 'echo still moves with TE');
+    }
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document; else globalThis.document = previousDocument;
+  }
+});
 
 test('three ROIs can be drawn, renamed, redrawn, deleted and restored per slice', () => {
   const previousDocument = globalThis.document;

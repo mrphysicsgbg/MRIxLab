@@ -1,7 +1,11 @@
 // Draw sequence timing and ROI curves on one shared axis.
+import { signalDuration } from './sequences.js';
+
 const NS = 'http://www.w3.org/2000/svg';
 const LEFT = 110;
 const RIGHT = 850;
+const COMPRESSED_DELAY_WIDTH = 80;
+const CYCLE_END_PADDING = 18;
 
 // Long TI/TR delays are explicitly broken so millisecond-scale events stay visible.
 export function createTimeAxis(model) {
@@ -15,11 +19,20 @@ export function createTimeAxis(model) {
     const compressed = duration > cap * 1.5 && !inSignalWindow;
     return { start: times[i], end: time, compressed, weight: compressed ? cap * 0.6 : duration };
   });
-  const weight = segments.reduce((sum, segment) => sum + segment.weight, 0);
+  // Reserve a fixed strip for a compressed delay before the next cycle and
+  // fixed padding after it. This anchors both the break and next RF pulse
+  // while the earlier events scale with the selected timing parameters.
+  const delayIndex = segments.findIndex(segment => segment.compressed && segment.end === model.repetition);
+  const fixedTail = delayIndex >= 0 && delayIndex === segments.length - 2;
+  const flexibleSegments = fixedTail ? segments.slice(0, delayIndex) : segments;
+  const weight = flexibleSegments.reduce((sum, segment) => sum + segment.weight, 0);
+  const flexibleWidth = RIGHT - LEFT - (fixedTail ? COMPRESSED_DELAY_WIDTH + CYCLE_END_PADDING : 0);
   let position = LEFT;
-  for (const segment of segments) {
+  for (const [index, segment] of segments.entries()) {
     segment.left = position;
-    position += segment.weight / weight * (RIGHT - LEFT);
+    position += fixedTail && index >= delayIndex
+      ? (index === delayIndex ? COMPRESSED_DELAY_WIDTH : CYCLE_END_PADDING)
+      : segment.weight / weight * flexibleWidth;
     segment.right = position;
   }
   return {
@@ -46,10 +59,9 @@ export function renderSequenceDiagram(svg, sequence, parameters, roiPlot = null)
     return [];
   }
   const model = sequence.diagram(parameters);
-  if (roiPlot) {
-    model.signalStart = 0;
-    model.signalEnd = roiPlot.trace.values.at(-1);
-  }
+  // Keep timing coordinates and compression independent of ROI selection.
+  model.signalStart = 0;
+  model.signalEnd = model.excitation + signalDuration(sequence, parameters);
   const axis = createTimeAxis(model);
   svg.setAttribute('viewBox', roiPlot ? (model.kind === 'IR' ? '0 0 900 935' : '0 0 900 780') : '0 0 900 430');
   svg.setAttribute('aria-label', `${sequence.label}: TR ${parameters.TR} seconds, TE ${parameters.TE} seconds${model.kind === 'IR' ? `, TI ${parameters.TI} seconds` : ''}${model.kind === 'GRE' ? `, flip angle ${parameters.FA} degrees` : ''}. Simplified sequence diagram.`);
