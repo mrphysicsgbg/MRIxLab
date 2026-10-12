@@ -1,0 +1,63 @@
+**For the current implementation, I would target 256 × 256 pixels per slice and roughly 128–256 slices for desktop use.** For phones, start around 128–192 pixels per side. Larger matrices can load, but ROI curve calculations become the main obstacle to smooth slider interaction.
+
+These are practical targets, not enforced limits or guarantees across devices.
+
+A compatible phantom must provide these four aligned, three-dimensional maps:
+
+| Map | Required meaning and units |
+|---|---|
+| `Rho` | Nonnegative relative proton density or a documented effective signal amplitude |
+| `T1` | Longitudinal relaxation time, in **seconds** |
+| `T2` | Transverse relaxation time, in **seconds** |
+| `T2Star` | Effective transverse relaxation time, in **seconds** |
+
+All four are currently required by the loader, even when the selected sequence uses only three. See [js/phantom.js](/home/jonathan/codeProjects/MRIxLab/js/phantom.js:2).
+
+Additional requirements:
+
+- **Matching geometry:** identical dimensions, voxel grid, orientation, and anatomical alignment. Spatial alignment across different resolutions still requires resampling onto one grid.
+- **Valid values:** finite values everywhere and positive relaxation times inside tissue. Set `Rho = 0` outside the object; zero relaxation values currently receive a one-second fallback.
+- **Amplitude scaling:** use a consistent relative scale, preferably with typical tissue amplitudes around 0–1. MRIxLab’s noise standard deviation is fixed at `0.01`, so scaling `Rho` changes the effective noise level.
+- **Documented assumptions:** identify measured, derived, and assigned maps, including their field strength. T2* should not substitute for T2.
+- **Display geometry:** preferably square pixels in the displayed plane. The current canvas uses matrix dimensions for aspect ratio and does not correct for physical voxel spacing.
+
+NIfTI files need preprocessing. The browser currently loads a JSON description and one binary file containing four little-endian float32 maps, each arranged as `[slice, row, column]`. Orientation and source scaling must be resolved during conversion. The existing [converter](/home/jonathan/codeProjects/MRIxLab/tools/convert_phantom.py:1) handles NumPy input.
+
+The memory requirement is straightforward:
+
+```text
+Map storage = width × height × slices × 16 bytes
+```
+
+Four float32 maps require 16 bytes per voxel; float32 uses four bytes per element. [MDN typed-array documentation](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Typed_arrays)
+
+| Matrix: width × height × slices | Four-map storage | Practical assessment |
+|---|---:|---|
+| 128 × 128 × 128 | 32 MiB | Conservative phone target |
+| 192 × 192 × 192 | 108 MiB | Candidate for newer phones; test with ROIs |
+| 256 × 256 × 128 | 128 MiB | Good desktop starting point |
+| 256 × 256 × 256 | 256 MiB | Reasonable desktop target with modest ROIs |
+| 512 × 512 × 128 | 512 MiB | Desktop only; ROI interaction needs care |
+| 512 × 512 × 512 | 2 GiB | Avoid with the current full-volume loader |
+| 1024 × 1024 × 1024 | 16 GiB | Unsuitable for the current architecture |
+
+These figures exclude browser overhead, download buffers, canvas memory, and saved ROI data. Loaded phantoms remain cached, so memory also accumulates when switching objects.
+
+**ROI size matters as much as image size.** I ran a synthetic timing check using the actual simulation and ROI functions:
+
+| Slice matrix | GRE simulation + grayscale | One ROI covering 10% of the slice |
+|---|---:|---:|
+| 256 × 256 | 6 ms | 71 ms |
+| 512 × 512 | 16 ms | 253 ms |
+| 1024 × 1024 | 55 ms | 1,624 ms |
+
+These are Node CPU timings on this execution host, **not browser benchmarks**; canvas drawing and diagram updates add work. Each ROI trace evaluates roughly 121 time points, and IR can use roughly twice that. Multiple or larger ROIs increase the cost further.
+
+Physical resolution therefore has no independent maximum: it depends on field of view. For an illustrative **200 mm cubic field of view**:
+
+| Isotropic voxel size | Approximate matrix | Four-map storage |
+|---|---:|---:|
+| 1 mm | 200³ | 122 MiB |
+| 0.8 mm | 250³ | 238 MiB |
+| 0.4 mm | 500³ | 1.86 GiB |
+| 0.1 mm | 2000³ | 119 GiB |
