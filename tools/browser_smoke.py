@@ -102,6 +102,28 @@ def run(url, screenshot):
             if sequence == 'GRE':
                 assert page.locator('#sequence-diagram .diagram-rf').count() == 2
                 assert '30°' in page.locator('#sequence-diagram').text_content()
+            else:
+                assert page.locator('#parameter-TR').get_attribute('min') == '0.3'
+                assert float(page.locator('#parameter-TI').get_attribute('max')) < 0.9
+                slide('#parameter-TR', 5)
+                assert page.locator('#parameter-TI').get_attribute('max') == '4.5'
+                slide('#parameter-TI', 4.5)
+                slide('#parameter-TR', 0)
+                tr = float(page.locator('#parameter-TR').input_value())
+                te = float(page.locator('#parameter-TE').input_value())
+                ti = float(page.locator('#parameter-TI').input_value())
+                assert tr == 0.3
+                assert 0 <= ti < tr - te
+                assert ti == float(page.locator('#parameter-TI').get_attribute('max'))
+                slide('#parameter-TE', 0.2)
+                ti = float(page.locator('#parameter-TI').input_value())
+                assert ti < tr - 0.2
+                assert ti == float(page.locator('#parameter-TI').get_attribute('max'))
+                assert page.locator('#parameter-TI').locator('..').locator('output').inner_text() == f'{ti:.3f} s'
+                assert f'TI = {ti:.3f} s' in page.locator('#sequence-diagram').text_content()
+                page.locator('#reset').click()
+                assert page.locator('#parameter-TI').input_value() == '0'
+                assert float(page.locator('#parameter-TI').get_attribute('max')) < 0.9
         slide("#parameter-TR", 0)
         slide("#parameter-FA", 0)
         assert "undefined" in page.locator("#status").inner_text()

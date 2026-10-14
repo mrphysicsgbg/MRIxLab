@@ -211,6 +211,23 @@ function createParameterControls() {
   updateEquations();
   elements['sequence-description'].textContent = sequence.description ?? '';
   elements.parameters.replaceChildren();
+  const parameterControls = new Map();
+  function syncParameterControls() {
+    for (const parameter of sequence.parameters) {
+      const { input, output, endpoints } = parameterControls.get(parameter.key);
+      // Keep TI on its slider step grid and strictly below TR - TE.
+      // Round the step count so floating-point noise cannot include equality.
+      const max = parameter.key === 'TI'
+        ? Math.min(parameter.max, Number(((Math.ceil(Number(((state.parameters.TR - state.parameters.TE) / parameter.step).toFixed(8))) - 1) * parameter.step).toFixed(4)))
+        : parameter.max;
+      input.max = max;
+      input.value = Math.min(state.parameters[parameter.key], max);
+      state.parameters[parameter.key] = Number(input.value);
+      output.textContent = formatValue(parameter, state.parameters[parameter.key]);
+      endpoints.lastElementChild.textContent = `${max} ${parameter.unit}`;
+      updateRange(input);
+    }
+  }
   for (const parameter of sequence.parameters) {
     const wrapper = document.createElement('div');
     wrapper.className = 'parameter';
@@ -232,8 +249,7 @@ function createParameterControls() {
     output.textContent = formatValue(parameter, state.parameters[parameter.key]);
     input.addEventListener('input', () => {
       state.parameters[parameter.key] = Number(input.value);
-      output.textContent = formatValue(parameter, state.parameters[parameter.key]);
-      updateRange(input);
+      syncParameterControls();
       scheduleRender();
     });
     const endpoints = document.createElement('div');
@@ -246,8 +262,9 @@ function createParameterControls() {
     heading.append(label, output);
     wrapper.append(heading, input, endpoints);
     elements.parameters.append(wrapper);
-    updateRange(input);
+    parameterControls.set(parameter.key, { input, output, endpoints });
   }
+  syncParameterControls();
 }
 
 function render() {

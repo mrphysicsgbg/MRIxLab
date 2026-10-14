@@ -79,7 +79,8 @@ export const sequences = {
     label: 'Inversion Recovery', shortLabel: 'IR',
     equation: String.raw`S_{\mathrm{IR}} = \rho\left(1-2e^{-\mathrm{TI}/T_1}+e^{-\mathrm{TR}/T_1}\right)e^{-\mathrm{TE}/T_2}`,
     description: 'Use inversion time to explore signal recovery and tissue suppression.',
-    parameters: [TR, TE, { key: 'TI', label: 'Inversion time', unit: 's', value: 0, min: 0, max: 4.5, step: 0.0225 }],
+    // Leave a positive inversion interval even at the maximum echo time.
+    parameters: [{ ...TR, min: Number((TE.max + TR.step).toFixed(3)) }, TE, { key: 'TI', label: 'Inversion time', unit: 's', value: 0, min: 0, max: 4.5, step: 0.0225 }],
     diagram: params => echoDiagram(params, 'IR'),
     simulate: (slice, params, out) => simulate(slice, params, out, 'IR'),
   },
