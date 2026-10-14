@@ -22,10 +22,16 @@ def run(url, screenshot):
         def image():
             return page.locator("#mri-image").evaluate("c => c.toDataURL()")
 
+        def wait_window():
+            page.wait_for_function("!document.getElementById('status').textContent.includes('Updating global window')")
+            assert 'Global window could not' not in page.locator('#status').inner_text()
+
         def slide(selector, value):
             page.locator(selector).evaluate("(el, v) => { el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})); }", value)
             page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+            wait_window()
 
+        wait_window()
         network_count = len(requests)
         original = image()
         page.locator('#dark-mode').check()
@@ -86,6 +92,7 @@ def run(url, screenshot):
         page.locator("#reset").click()
         page.wait_for_function("document.querySelector('#parameter-TR').value === '1'")
         page.evaluate("() => new Promise(resolve => requestAnimationFrame(resolve))")
+        wait_window()
         assert image() == original, "Noise must stay fixed"
         for sequence, extra in [("IR", "TI"), ("GRE", "FA")]:
             page.select_option("#sequence", sequence)
@@ -95,6 +102,7 @@ def run(url, screenshot):
             assert page.locator("#parameters input").count() == 3
             assert page.locator(f"#parameter-{extra}").count() == 1
             page.evaluate("() => new Promise(resolve => requestAnimationFrame(resolve))")
+            wait_window()
             before = image()
             slide(f"#parameter-{extra}", 1.2 if sequence == "IR" else 30)
             assert image() != before
@@ -199,7 +207,7 @@ def run(url, screenshot):
           const start = performance.now();
           for (let i = 0; i < 200; i++) {
             sequences.GRE.simulate(p.getSlice(50), {TR: 1, TE: .1, FA: 30}, signal);
-            renderer.render(signal);
+            renderer.render(signal, false, 1);
           }
           return (performance.now() - start) / 200;
         }""")

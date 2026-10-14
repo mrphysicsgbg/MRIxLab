@@ -15,23 +15,21 @@ export function fillNoise(noise, random = Math.random) {
   return noise;
 }
 
-// Scale noisy magnitude to the current image maximum.
-export function writeGrayscale(signal, noise, magnitude, pixels, noiseFree = false) {
-  let maximum = 0;
+// Scale noisy magnitude to the cached, noise-free maximum of the entire volume.
+export function writeGrayscale(signal, noise, magnitude, pixels, noiseFree = false, windowMaximum = 0) {
   let invalid = 0;
   for (let i = 0; i < signal.length; i++) {
     const value = Math.abs(signal[i] + (noiseFree ? 0 : noise[i]));
     if (!Number.isFinite(value)) invalid++;
     magnitude[i] = Number.isFinite(value) ? value : 0;
-    maximum = Math.max(maximum, magnitude[i]);
   }
-  const scale = maximum > 0 ? 255 / maximum : 0;
+  const scale = windowMaximum > 0 ? 255 / windowMaximum : 0;
   for (let i = 0; i < signal.length; i++) {
     const offset = i * 4;
     pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = magnitude[i] * scale;
     pixels[offset + 3] = 255;
   }
-  return { maximum, invalid };
+  return { maximum: windowMaximum, invalid };
 }
 
 export function createRenderer(canvas, width, height) {
@@ -50,9 +48,9 @@ export function createRenderer(canvas, width, height) {
     getPixel(index) {
       return { noise: noiseFree ? 0 : noise[index], magnitude: magnitude[index], grayscale: image.data[index * 4] };
     },
-    render(signal, withoutNoise = false) {
+    render(signal, withoutNoise = false, windowMaximum) {
       noiseFree = withoutNoise;
-      const result = writeGrayscale(signal, noise, magnitude, image.data, noiseFree);
+      const result = writeGrayscale(signal, noise, magnitude, image.data, noiseFree, windowMaximum);
       context.putImageData(image, 0, 0);
       return result;
     },

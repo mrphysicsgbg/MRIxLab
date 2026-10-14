@@ -6,6 +6,7 @@ import { pixelAt } from './pixel.js';
 import { renderLatex } from './math.js';
 import { renderSequenceDiagram } from './sequence-diagram.js';
 import { createRoiController } from './rois.js';
+import { createGlobalWindow } from './global-window.js';
 
 const state = { object: 'brain', sequence: 'SE', slice: 50, parameters: defaultParameters(sequences.SE), darkMode: true, showEquations: false, showDiagram: false, noiseFree: false,
   showRois: false, roiSets: new Map() };
@@ -25,6 +26,7 @@ let renderer;
 let pendingFrame = null;
 let hoveredPixel = null;
 let roiController;
+let globalWindow;
 
 // Move the existing controls so reading and keyboard order follow the phone layout.
 const phoneLayout = window.matchMedia('(max-width: 620px)');
@@ -188,9 +190,9 @@ function updateEquations() {
   elements['equation-sequence'].textContent = sequence.label;
   if (!state.showEquations) return;
   renderLatex(elements['signal-equation'], sequence.equation ?? String.raw`\text{Equation not provided.}`);
-  renderLatex(elements['display-equation'], state.noiseFree
-    ? String.raw`\begin{aligned} M &= \lvert S \rvert \quad (n=0) \\ \mathrm{Gray} &= 255\,\frac{M}{\max(M)} \end{aligned}`
-    : String.raw`\begin{aligned} M &= \lvert S + n \rvert \\ \mathrm{Gray} &= 255\,\frac{M}{\max(M)} \end{aligned}`);
+  const magnitude = state.noiseFree ? String.raw`\lvert S \rvert \quad (n=0)` : String.raw`\lvert S+n \rvert`;
+  const maximum = String.raw`\max_{\mathrm{volume}}\lvert S\rvert`;
+  renderLatex(elements['display-equation'], String.raw`\begin{aligned} M &= ${magnitude} \\ \mathrm{Gray} &= \min\left(255,255\,\frac{M}{${maximum}}\right) \end{aligned}`);
 }
 
 function updateDiagram() {
@@ -271,13 +273,16 @@ function render() {
   if (!phantom) { updateDiagram(); return; }
   const sequence = sequences[state.sequence];
   sequence.simulate(phantom.getSlice(state.slice), state.parameters, signal);
-  const { invalid } = renderer.render(signal, state.noiseFree);
+  const windowMaximum = globalWindow.getMaximum(state.sequence, state.parameters);
+  const { invalid } = renderer.render(signal, state.noiseFree, windowMaximum);
   elements['image-sequence'].textContent = sequence.label.toUpperCase();
   elements['image-slice'].textContent = `SLICE ${state.slice}`;
   elements['mri-image'].setAttribute('aria-label', `${sequence.label} MRI image of ${simulationObjects[state.object].label}, slice ${state.slice} of ${phantom.slices - 1}`);
   elements.status.textContent = invalid
     ? 'Signal is undefined at this parameter combination. Adjust TR or flip angle to continue.'
     : `${state.noiseFree ? 'Noise free' : 'Noise regenerated on slice change'} · Zero-based slice indices · Times in seconds`;
+  if (globalWindow.failed) elements.status.textContent = 'Global window could not be calculated. Reload to try again.';
+  else if (globalWindow.pending) elements.status.textContent += ' · Updating global window…';
   updatePixelReadout();
   roiController?.update(false);
   updateDiagram();
@@ -371,6 +376,7 @@ createParameterControls();
 updateSliceControl();
 
 async function initialize() {
+  globalWindow?.dispose();
   elements.object.disabled = true;
   elements['simulation-controls'].disabled = true;
   elements['mri-image'].hidden = true;
@@ -391,6 +397,7 @@ async function initialize() {
     state.slice = Math.min(state.slice, phantom.slices - 1);
     signal = new Float32Array(phantom.width * phantom.height);
     renderer = createRenderer(elements['mri-image'], phantom.width, phantom.height);
+    globalWindow = createGlobalWindow(phantom, scheduleRender);
     roiController.invalidate();
     elements.slice.max = phantom.slices - 1;
     elements['image-object'].textContent = simulationObjects[state.object].label.toUpperCase();

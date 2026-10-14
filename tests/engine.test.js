@@ -44,15 +44,15 @@ test('real phantom slices are cached views with valid boundaries', () => {
   assert.throws(() => decodePhantom(metadata, new ArrayBuffer(4)), /Invalid Rho/);
 });
 
-test('rendering adds fixed noise before magnitude and normalizes the maximum', () => {
+test('rendering adds fixed noise before magnitude and uses the supplied volume maximum', () => {
   const signal = new Float32Array([-2, 1, 0, NaN]);
   const noise = new Float32Array([0.5, 0, 0.5, 0]);
   const magnitude = new Float32Array(4);
   const pixels = new Uint8ClampedArray(16);
-  assert.deepEqual(writeGrayscale(signal, noise, magnitude, pixels), { maximum: 1.5, invalid: 1 });
+  assert.deepEqual(writeGrayscale(signal, noise, magnitude, pixels, false, 1.5), { maximum: 1.5, invalid: 1 });
   assert.deepEqual([...pixels], [255, 255, 255, 255, 170, 170, 170, 255, 85, 85, 85, 255, 0, 0, 0, 255]);
   const original = pixels.slice();
-  writeGrayscale(signal, noise, magnitude, pixels);
+  writeGrayscale(signal, noise, magnitude, pixels, false, 1.5);
   assert.deepEqual(pixels, original);
   signal.fill(0); noise.fill(0);
   assert.equal(writeGrayscale(signal, noise, magnitude, pixels).maximum, 0);
@@ -90,20 +90,20 @@ test('renderer retains noise on render, regenerates explicitly, and exposes actu
   const canvas = { getContext: () => context };
   const renderer = createRenderer(canvas, 2, 2);
   const signal = new Float32Array([-1, 0.4, 0, 2]);
-  renderer.render(signal);
+  renderer.render(signal, false, 2);
   const initial = renderer.getPixel(0);
   signal[0] = -0.5;
-  renderer.render(signal);
+  renderer.render(signal, false, 2);
   assert.equal(renderer.getPixel(0).noise, initial.noise);
-  renderer.render(signal, true);
+  renderer.render(signal, true, 2);
   assert.equal(renderer.getPixel(0).noise, 0);
   assert.equal(renderer.getPixel(0).magnitude, 0.5, 'noise-free magnitude retains negative raw signal magnitude');
   assert.equal(renderer.getPixel(2).magnitude, 0, 'zero raw signal has no background noise');
   assert.equal(renderer.getPixel(2).grayscale, 0);
-  renderer.render(signal, false);
+  renderer.render(signal, false, 2);
   assert.equal(renderer.getPixel(0).noise, initial.noise, 'switching noise back on retains its realization');
   renderer.regenerateNoise();
-  renderer.render(signal);
+  renderer.render(signal, false, 2);
   const pixel = renderer.getPixel(0);
   assert.notEqual(pixel.noise, initial.noise);
   assert.ok(Math.abs(pixel.magnitude - Math.abs(signal[0] + pixel.noise)) < 1e-7);

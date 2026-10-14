@@ -40,6 +40,7 @@ export function decodePhantom(metadata, buffer) {
   ));
   return {
     width, height, slices, metadata,
+    getVolume() { return volume; },
     getSlice(index) {
       if (!Number.isInteger(index) || index < 0 || index >= slices) throw new RangeError('Slice out of range.');
       return sliceViews[index];
