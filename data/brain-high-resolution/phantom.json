@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "file": "phantom.bin.gz",
+  "dtype": "float32-le",
+  "layout": "slice-row-column",
+  "width": 180,
+  "height": 216,
+  "slices": 180,
+  "sourceShape": [
+    216,
+    180,
+    180
+  ],
+  "sourceAxes": [
+    "row",
+    "column",
+    "slice"
+  ],
+  "displayOrigin": "upper",
+  "units": "seconds",
+  "maps": {
+    "Rho": {
+      "byteOffset": 0
+    },
+    "T1": {
+      "byteOffset": 27993600
+    },
+    "T2": {
+      "byteOffset": 55987200
+    },
+    "T2Star": {
+      "byteOffset": 83980800
+    }
+  },
+  "source": "https://raw.githubusercontent.com/leoliuf/MRiLab/42b7c48dcb1d49893328d53df6b4c0751fdbcec3/Resources/VObj/BrainHighResolution.mat",
+  "sourceSha256": "d9f60840d5234b5c66dc2e14963fc3e12e774e8b0ac53d489557970ec88d48c5",
+  "voxelSpacingMeters": [
+    0.001,
+    0.001,
+    0.001
+  ],
+  "compression": "gzip"
+}

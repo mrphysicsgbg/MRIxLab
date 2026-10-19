@@ -7,6 +7,10 @@ export const simulationObjects = {
     label: 'Digital brain phantom',
     metadataUrl: new URL('../data/phantom.json', import.meta.url),
   },
+  'brain-high-resolution': {
+    label: 'Digital brain phantom (high resolution)',
+    metadataUrl: new URL('../data/brain-high-resolution/phantom.json', import.meta.url),
+  },
 };
 
 // Validate the file layout before creating map views.
@@ -55,7 +59,16 @@ export async function loadPhantom(objectId = 'brain') {
   const response = await fetch(metadataUrl);
   if (!response.ok) throw new Error(`Phantom metadata could not be loaded (${response.status}).`);
   const metadata = await response.json();
+  if (metadata.compression && metadata.compression !== 'gzip') {
+    throw new Error('Unsupported phantom compression.');
+  }
+  if (metadata.compression === 'gzip' && typeof DecompressionStream === 'undefined') {
+    throw new Error('This phantom requires a browser with gzip decompression support.');
+  }
   const binary = await fetch(new URL(metadata.file, metadataUrl));
   if (!binary.ok) throw new Error(`Phantom could not be loaded (${binary.status}).`);
-  return decodePhantom(metadata, await binary.arrayBuffer());
+  const decoded = metadata.compression === 'gzip'
+    ? new Response(binary.body.pipeThrough(new DecompressionStream('gzip')))
+    : binary;
+  return decodePhantom(metadata, await decoded.arrayBuffer());
 }

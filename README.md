@@ -16,7 +16,7 @@ Serve this directory with any static HTTP server, for example:
 python3 -m http.server 8000
 ```
 
-Open `http://localhost:8000`. Python in this example only serves files; it is not part of the application. Opening `index.html` through `file://` is unsupported because browsers restrict module and data fetching. Deploy the directory as-is to any static host, including under a subpath. Serve JavaScript with its normal MIME type and include `data/phantom.bin` and `data/phantom.json`.
+Open `http://localhost:8000`. Python in this example only serves files; it is not part of the application. Opening `index.html` through `file://` is unsupported because browsers restrict module and data fetching. Deploy the directory as-is to any static host, including under a subpath. Serve JavaScript with its normal MIME type and include the entire `data/` directory (both phantom datasets and their metadata).
 
 ## Publish on GitHub Pages
 
@@ -51,13 +51,13 @@ Publish `index.html` and the `assets` directory together. Share the public GitHu
 
 ## Behavior
 
-Choose Spin Echo, Inversion Recovery or Gradient Echo. Controls and defaults are generated from `js/sequences.js`. Sequence changes restore that sequence's defaults; reset restores parameters and retains your slice. The slice selector covers zero-based indices 0–89, starting at 50.
+Choose Spin Echo, Inversion Recovery or Gradient Echo. Controls and defaults are generated from `js/sequences.js`. Sequence changes restore that sequence's defaults; reset restores parameters and retains your slice. The slice selector starts at 50 and covers zero-based indices 0–89 for the standard phantom or 0–179 for the high-resolution phantom.
 
 For Inversion Recovery, TR starts at 0.3 s so it remains above the maximum TE of 0.2 s. The TI slider maximum follows TR − TE, staying strictly below it on the TI step grid and capped at 4.5 s. Lowering TR or increasing TE automatically reduces TI when needed.
 
 Images use global windowing: the maximum absolute noise-free signal across the entire dataset at the current sequence settings. Every slice shares that scale; displayed noise can saturate at white. Global maxima are calculated in a background worker, cached for up to 64 settings, and reused when scrolling or changing the noise option. Rapid slider changes keep only the latest queued calculation. While Updating global window… is shown, the previous global maximum is retained; the first image appears when its initial maximum is ready.
 
-The desktop left column contains Sequence & parameters, followed by Regions of interest when enabled. This compact column stays visible while the page scrolls. Each parameter slider spans the panel width on its own row, and the sequence and ROI panels fit together without a separate sidebar scrollbar. Shorter desktop viewports omit the explanatory sequence and slice paragraphs to retain space for the controls. The object dropdown sits beside the Simulation object & image title and currently offers Digital brain phantom. Add converted datasets to the `simulationObjects` catalog in `js/phantom.js` to offer more objects; the selector and loading path use that catalog automatically. Loaded objects are retained in memory for reuse, and slice limits follow the selected object's dimensions.
+The desktop left column contains Sequence & parameters, followed by Regions of interest when enabled. This compact column stays visible while the page scrolls. Each parameter slider spans the panel width on its own row, and the sequence and ROI panels fit together without a separate sidebar scrollbar. Shorter desktop viewports omit the explanatory sequence and slice paragraphs to retain space for the controls. The object dropdown sits beside the Simulation object & image title and offers Digital brain phantom (the default) and Digital brain phantom (high resolution). Add converted datasets to the `simulationObjects` catalog in `js/phantom.js` to offer more objects; the selector and loading path use that catalog automatically. Loaded objects are retained in memory for reuse, and slice limits follow the selected object's dimensions.
 
 On phone-sized viewports (620 px wide or less), panels 01 and 02 combine into one primary panel in dark mode. The image stays visible at the top, and compact pulse-sequence controls stay at the bottom. Sequence diagram, Signal equations and Define ROIs share one row of expandable links in the middle, replacing the display switches. Expanded contents appear beneath this row; the links remain visible while contents scroll. Opening equations or the diagram reduces the image height; panel contents scroll independently. Opening Define ROIs closes the diagram and replaces the bottom pulse-sequence controls with ROI controls, retaining a larger image for drawing. Closing Define ROIs restores the pulse-sequence controls; saved ROI outlines stay visible on the image and their mean signal curves stay visible in the diagram until the regions are deleted. Voxel hover measurements are hidden. The mobile slice selector is hidden while saved ROIs exist and returns when all ROIs are deleted. Noise free uses a button in the controls. Resizing to a wider viewport restores the desktop layout, display switches and saved theme preference, while retaining simulation settings.
 
@@ -81,11 +81,11 @@ On wide screens, the diagram sits to the right of the equations (or the image wh
 
 The schematic conventions follow [Stanford RAD229 sequence overview](https://web.stanford.edu/class/rad229/Notes/0b-Sequence-Overview.pdf). Diagram event definitions belong to the sequence configuration; `js/sequence-diagram.js` supplies the shared timeline mapping and SVG rendering.
 
-The four Float32 maps load once (approximately 14 MB total). Slice extraction returns cached views, simulations reuse a signal buffer, and rendering reuses ImageData and magnitude buffers. Input changes coalesce into one render per animation frame. No network requests occur during simulation.
+The four Float32 maps load on first selection of each object (approximately 14 MB for the standard phantom or 112 MB for the high-resolution phantom). The high-resolution maps are downloaded as a 3.1 MB gzip asset and expanded with the browser’s native `DecompressionStream`; this option requires a browser supporting that API. Serve the `.gz` file as an ordinary static asset without a `Content-Encoding` header, since decompression is handled by the loader. The background windowing worker also keeps a copy of the selected maps and a signal buffer, so memory use exceeds the map size. High-resolution global window updates scan eight times as many voxels. Slice extraction returns cached views, simulations reuse a signal buffer, and rendering reuses ImageData and magnitude buffers. Input changes coalesce into one render per animation frame. No network requests occur during simulation.
 
 Signed raw signals follow the reference equations exactly, with zero relaxation times replaced by 1 during evaluation. Times retain the source's seconds convention. Gaussian noise with standard deviation 0.01 is generated at initialization and regenerated in-place each time the slice changes, including when returning to a previous slice. Parameter and sequence changes retain the current noise. Rendering displays `abs(signal + noise)` with minimum 0 and a dynamically updated maximum. GRE at TR=0 and FA=0 preserves the reference's undefined raw signal; the display renders nonfinite pixels black and explains the combination.
 
-Source orientation is `phantom[rows, columns, slice]`; the binary uses `[slice, row, column]` with the first row at the top, matching Python `imshow`. The canvas preserves the 90 × 108 image aspect ratio inside a square black display.
+Source orientation is `phantom[rows, columns, slice]`; the binary uses `[slice, row, column]` with the first row at the top, matching Python `imshow`. The canvas preserves the image aspect ratio (90 × 108 or 180 × 216) inside a square black display.
 
 ## Development and validation
 
@@ -104,7 +104,20 @@ python3 tools/convert_phantom.py /tmp/BrainStandardResolution.npz
 python3 tools/validate_numerics.py /tmp/BrainStandardResolution.npz
 ```
 
-Validation checks every converted voxel and compares 52 full-slice JavaScript results against the original NumPy methods, including defaults, alternate parameters, volume boundaries, zero relaxation values and the GRE singularity. It uses the original source precision before conversion, allows Float32 error (`atol=2e-7`, `rtol=2e-5`) and compares raw signed signals without noise or normalization. The actual Python source is retained in `tools/reference/MRI_contrast.py`; validation extracts its numerical methods without importing GUI dependencies.
+The alternative high-resolution phantom comes from MRiLab’s `BrainHighResolution.mat`: 180 × 216 pixels across 180 slices at 1 mm isotropic spacing, with eight times the voxels of the standard dataset. The converter reads the single-component `VObj.Rho`, `T1`, `T2` and `T2Star` maps, keeps their seconds convention and source orientation, and writes Float32 maps without resampling. Other MRiLab fields are not used by the contrast simulator. The original phantom remains the default; select the alternative from **Object**.
+
+Regenerate and verify the high-resolution asset with NumPy and SciPy (development only):
+
+```sh
+python3 -m pip install numpy scipy
+curl -L --fail -o /tmp/BrainHighResolution.mat https://raw.githubusercontent.com/leoliuf/MRiLab/42b7c48dcb1d49893328d53df6b4c0751fdbcec3/Resources/VObj/BrainHighResolution.mat
+python3 tools/convert_phantom.py /tmp/BrainHighResolution.mat --output data/brain-high-resolution --gzip
+python3 tools/validate_mrilab.py /tmp/BrainHighResolution.mat
+```
+
+The MRiLab validator compares every output voxel with the original MATLAB arrays after Float32 conversion, including axis order, and checks the source checksum. Node tests exercise both real catalog datasets through the loader, including gzip decompression, known MATLAB voxel values, boundary slices and all three sequences. Browser switching and high-resolution rendering have not yet been verified in Chromium.
+
+The standard-phantom numerical validation checks every converted voxel and compares 52 full-slice JavaScript results against the original NumPy methods, including defaults, alternate parameters, volume boundaries, zero relaxation values and the GRE singularity. It uses the original source precision before conversion, allows Float32 error (`atol=2e-7`, `rtol=2e-5`) and compares raw signed signals without noise or normalization. The actual Python source is retained in `tools/reference/MRI_contrast.py`; validation extracts its numerical methods without importing GUI dependencies.
 
 Modules: `app.js` owns state and controls; `sequences.js` defines parameters and signals; `phantom.js` loads and exposes slices; `renderer.js` owns noise and display normalization. A new sequence normally requires only a new definition in `sequences.js`.
 
@@ -124,3 +137,5 @@ Chromium also requires its standard OS libraries. The smoke script checks contro
 ## Source
 
 Reference: [JonathanArvidsson/EEN200 MRI_contrast.py](https://github.com/JonathanArvidsson/EEN200/blob/main/MRI_contrast.py). Phantom: [BrainStandardResolution.npz](https://github.com/JonathanArvidsson/EEN200/blob/main/numPhantom/BrainStandardResolution.npz). The metadata records the source SHA-256 for reproducibility. These upstream materials are retained with their original provenance; consult upstream for redistribution terms.
+
+High-resolution alternative: [MRiLab BrainHighResolution.mat](https://github.com/leoliuf/MRiLab/blob/42b7c48dcb1d49893328d53df6b4c0751fdbcec3/Resources/VObj/BrainHighResolution.mat), copyright Fang Liu. MRiLab’s redistribution notice is retained in [data/brain-high-resolution/LICENSE.txt](data/brain-high-resolution/LICENSE.txt). Metadata pins the upstream revision and source SHA-256.
