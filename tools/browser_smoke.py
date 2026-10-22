@@ -18,6 +18,26 @@ def run(url, screenshot):
         assert page.locator("#slice-value").inner_text() == "50 / 89"
         assert page.locator("#parameters input").count() == 2
         assert page.locator("#mri-image").evaluate("c => [c.width, c.height]") == [90, 108]
+        # The ROI editor must not change the other panels' column geometry.
+        for width in [768, 1280, 1700, 1920, 2300]:
+            page.set_viewport_size({'width': width, 'height': 1100})
+            for equations, diagram in [(False, False), (True, False), (False, True), (True, True)]:
+                page.locator('#show-equations').set_checked(equations)
+                page.locator('#show-diagram').set_checked(diagram)
+                selectors = ['main', '#lab', '.control-panels', '.viewer', '#image-stage']
+                selectors += ['#equations-panel'] if equations else []
+                selectors += ['#diagram-panel'] if diagram else []
+                before = {selector: page.locator(selector).bounding_box() for selector in selectors}
+                page.locator('#define-rois').check()
+                for selector, original_box in before.items():
+                    current_box = page.locator(selector).bounding_box()
+                    assert abs(current_box['width'] - original_box['width']) < 1, f'ROI toggle resized {selector} at {width}px'
+                    assert abs(current_box['x'] - original_box['x']) < 1, f'ROI toggle moved {selector} at {width}px'
+                assert abs(page.locator('#image-stage').bounding_box()['height'] - before['#image-stage']['height']) < 1
+                page.locator('#define-rois').uncheck()
+        page.set_viewport_size({'width': 1440, 'height': 1100})
+        page.locator('#show-equations').uncheck()
+        page.locator('#show-diagram').uncheck()
 
         def image():
             return page.locator("#mri-image").evaluate("c => c.toDataURL()")
@@ -192,7 +212,7 @@ def run(url, screenshot):
         page.set_viewport_size({'width': 2300, 'height': 1100})
         image_box = page.locator('.viewer').bounding_box()
         roi_box = page.locator('#roi-panel').bounding_box()
-        assert roi_box['x'] >= image_box['x'] + image_box['width'] - 1
+        assert roi_box['x'] < image_box['x']
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         page.set_viewport_size({'width': 1440, 'height': 1100})
         assert len(requests) == network_count, 'ROI drawing and tracing use only loaded data'

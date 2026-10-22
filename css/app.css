@@ -138,36 +138,13 @@ h3 { font-size: 12px; font-weight: 600; margin: 26px 0 14px; }
 .roi-signal-curve { fill: none; stroke-width: 2.5; }
 .roi-chart-grid { stroke: var(--line); stroke-width: 1; }
 .roi-chart-current { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
-.lab.with-rois, .lab.with-rois.with-equations { grid-template-columns: 340px minmax(0, 1fr); }
-.lab.with-rois .equations-panel { grid-column: 2 / -1; border-left: 0; border-top: 1px solid var(--line); }
-.lab.with-rois.with-diagram .diagram-panel { grid-column: 2 / -1; border-left: 0; border-top: 1px solid var(--line); }
 .lab.with-rois .roi-instructions { margin: 12px 0; }
-@media (min-width: 1200px) {
-  main.with-rois.with-diagram { max-width: 2200px; }
-  .lab.with-rois, .lab.with-rois.with-equations { grid-template-columns: 290px minmax(500px, 1fr); }
-}
-@media (min-width: 1650px) {
-  .lab.with-rois.with-equations { grid-template-columns: 280px minmax(500px, 1fr) 310px; }
-  .lab.with-rois .equations-panel { grid-column: 3; grid-row: 1; border-left: 1px solid var(--line); border-top: 0; }
-}
-@media (min-width: 1900px) {
-  main.with-rois.with-diagram { max-width: 2600px; }
-  .lab.with-rois.with-diagram:not(.with-equations) { grid-template-columns: 280px minmax(500px, 1fr) minmax(720px, 1.4fr); }
-  .lab.with-rois.with-diagram:not(.with-equations) .diagram-panel { grid-column: 3; grid-row: 1; border-left: 1px solid var(--line); border-top: 0; }
-}
-@media (min-width: 2200px) {
-  .lab.with-rois.with-diagram.with-equations { grid-template-columns: 280px minmax(500px, 1fr) 310px minmax(720px, 1.4fr); }
-  .lab.with-rois.with-diagram.with-equations .diagram-panel { grid-column: 4; grid-row: 1; border-left: 1px solid var(--line); border-top: 0; }
-}
-@media (max-width: 850px) { .lab.with-rois, .lab.with-rois.with-equations { grid-template-columns: 290px minmax(0, 1fr); } }
-@media (max-width: 620px) { .lab.with-rois, .lab.with-rois.with-equations { grid-template-columns: 1fr; } }
 
 .object-selection { display: flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; }
 .object-selection .field-label { margin: 0; }
 .object-selection .select-wrap { min-width: 0; }
 .object-selection select { padding: 8px 28px 8px 10px; font-size: 11px; }
 .object-selection .select-wrap::after { right: 10px; top: 5px; }
-.with-rois .controls { flex: 0; }
 
 #roi-status:empty { display: none; }
 
@@ -184,6 +161,8 @@ h3 { font-size: 12px; font-weight: 600; margin: 26px 0 14px; }
   @container (min-width: 480px) {
     .pixel-values { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
+  /* Opening the ROI controls must not shift columns when a scrollbar appears. */
+  :root { scrollbar-gutter: stable; }
   /* Clipping the border must not create a scroll container for sticky controls. */
   .lab { overflow: clip; }
   .control-panels { position: sticky; top: 12px; align-self: start; }
