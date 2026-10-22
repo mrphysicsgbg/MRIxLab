@@ -54,6 +54,34 @@ def run(url, screenshot):
         wait_window()
         network_count = len(requests)
         original = image()
+        layout_toggle = page.locator('#image-layout-toggle')
+        layout_toggle.click()
+        assert layout_toggle.inner_text() == '>'
+        assert layout_toggle.get_attribute('aria-pressed') == 'true'
+        header_box = page.locator('.viewer-header').bounding_box()
+        toggle_box = layout_toggle.bounding_box()
+        assert abs(toggle_box['x'] + toggle_box['width'] - header_box['x'] - header_box['width']) < 1
+        assert page.locator('.pixel-values > div:visible').count() == 1
+        assert page.locator('#pixel-magnitude').is_visible()
+        assert page.locator('.pixel-heading').is_hidden()
+        assert page.locator('#image-panel').evaluate("el => el.parentElement.classList.contains('control-panels') && el.nextElementSibling.classList.contains('controls')")
+        image_box = page.locator('#image-panel').bounding_box()
+        controls_box = page.locator('.controls').bounding_box()
+        assert image_box['y'] + image_box['height'] <= controls_box['y'] + 1
+        assert image() == original, 'Moving the panel preserves the simulated image'
+        page.set_viewport_size({'width': 390, 'height': 844})
+        assert not layout_toggle.is_visible()
+        assert page.locator('#image-panel').evaluate("el => el.parentElement.id === 'lab'")
+        assert page.locator('.controls').evaluate("el => el.parentElement.classList.contains('viewer-content')")
+        page.set_viewport_size({'width': 1440, 'height': 1100})
+        assert layout_toggle.get_attribute('aria-pressed') == 'true'
+        layout_toggle.click()
+        assert layout_toggle.inner_text() == '<'
+        assert layout_toggle.get_attribute('aria-pressed') == 'false'
+        assert page.locator('#image-panel').evaluate("el => el.parentElement.id === 'lab'")
+        assert page.locator('#mri-image').count() == 1
+        assert page.locator('.pixel-values > div:visible').count() == 8
+        assert image() == original
         page.locator('#dark-mode').check()
         assert page.locator('html').get_attribute('data-theme') == 'dark'
         assert image() == original, 'Theme changes must not alter signal or noise'

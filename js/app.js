@@ -9,7 +9,7 @@ import { createRoiController } from './rois.js';
 import { createGlobalWindow } from './global-window.js';
 
 const state = { object: 'brain', sequence: 'SE', slice: 50, parameters: defaultParameters(sequences.SE), darkMode: true, showEquations: false, showDiagram: false, noiseFree: false,
-  showRois: false, roiSets: new Map() };
+  showRois: false, stackImage: false, roiSets: new Map() };
 const elements = Object.fromEntries(['object', 'image-object', 'sequence', 'parameters', 'slice', 'slice-value', 'sequence-description',
   'simulation-controls', 'mri-image', 'image-sequence', 'image-slice', 'status', 'loading', 'load-message',
   'retry', 'reset', 'dark-mode', 'show-equations', 'noise-free', 'equations-panel', 'lab', 'image-stage',
@@ -18,7 +18,7 @@ const elements = Object.fromEntries(['object', 'image-object', 'sequence', 'para
   'show-diagram', 'diagram-panel', 'diagram-number', 'diagram-sequence', 'sequence-diagram', 'diagram-notes', 'diagram-signal-description',
   'define-rois', 'roi-panel', 'roi-overlay', 'roi-drawing-overlay', 'image-plane', 'roi-list', 'roi-controls', 'roi-cancel',
   'roi-slice-note', 'roi-status', 'equation-number', 'simulation-view', 'mobile-equations-panel',
-  'mobile-diagram-panel', 'mobile-roi-panel', 'mobile-panel-content', 'mobile-roi-dock', 'mobile-noise-free'].map(id => [id, document.getElementById(id)]));
+  'mobile-diagram-panel', 'mobile-roi-panel', 'mobile-panel-content', 'mobile-roi-dock', 'mobile-noise-free', 'image-layout-toggle', 'image-panel'].map(id => [id, document.getElementById(id)]));
 let phantom;
 const loadedObjects = new Map();
 let signal;
@@ -57,6 +57,11 @@ function updatePhoneLayout() {
   updateViewOptions();
 }
 phoneLayout.addEventListener('change', updatePhoneLayout);
+elements['image-layout-toggle'].addEventListener('click', () => {
+  state.stackImage = !state.stackImage;
+  updateViewOptions();
+  elements['image-layout-toggle'].focus({ preventScroll: true });
+});
 updatePhoneLayout();
 
 function updatePixelReadout() {
@@ -94,6 +99,25 @@ function updateRoiDisplayState() {
 
 function updateViewOptions() {
   updateRoiDisplayState();
+  const stackImage = state.stackImage && !phoneLayout.matches;
+  const viewer = elements['image-panel'];
+  elements.lab.classList.toggle('image-stacked', stackImage);
+  if (stackImage) {
+    if (viewer.nextElementSibling !== controls) controls.before(viewer);
+  } else if (viewer.parentElement !== elements.lab) {
+    controlPanels.after(viewer);
+  }
+  const layoutAction = stackImage ? 'Move image beside sequence parameters' : 'Move image above sequence parameters';
+  const viewerSectionHeading = viewerHeading.parentElement;
+  if (stackImage) {
+    if (elements['image-layout-toggle'].parentElement === viewerSectionHeading) viewerSectionHeading.after(elements['image-layout-toggle']);
+  } else if (elements['image-layout-toggle'].parentElement !== viewerSectionHeading) {
+    viewerSectionHeading.prepend(elements['image-layout-toggle']);
+  }
+  elements['image-layout-toggle'].textContent = stackImage ? '>' : '<';
+  elements['image-layout-toggle'].setAttribute('aria-pressed', String(stackImage));
+  elements['image-layout-toggle'].setAttribute('aria-label', layoutAction);
+  elements['image-layout-toggle'].title = layoutAction;
   const darkMode = phoneLayout.matches || state.darkMode;
   document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
   document.querySelector('meta[name="theme-color"]').content = darkMode ? '#151c1b' : '#f5f4ef';
@@ -280,9 +304,9 @@ function render() {
   elements['mri-image'].setAttribute('aria-label', `${sequence.label} MRI image of ${simulationObjects[state.object].label}, slice ${state.slice} of ${phantom.slices - 1}`);
   elements.status.textContent = invalid
     ? 'Signal is undefined at this parameter combination. Adjust TR or flip angle to continue.'
-    : `${state.noiseFree ? 'Noise free' : 'Noise regenerated on slice change'} · Zero-based slice indices · Times in seconds`;
+    : '';
   if (globalWindow.failed) elements.status.textContent = 'Global window could not be calculated. Reload to try again.';
-  else if (globalWindow.pending) elements.status.textContent += ' · Updating global window…';
+  else if (globalWindow.pending) elements.status.textContent += `${elements.status.textContent ? ' · ' : ''}Updating global window…`;
   updatePixelReadout();
   roiController?.update(false);
   updateDiagram();

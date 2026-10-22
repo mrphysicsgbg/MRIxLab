@@ -75,9 +75,9 @@
         <p id="roi-status" class="roi-instructions" role="status" aria-live="polite"></p>
       </aside>
       </div>
-      <div class="viewer">
+      <div id="image-panel" class="viewer">
         <div class="viewer-header">
-          <div class="section-heading"><span class="section-index">02</span><h2>Simulation object & image</h2></div>
+          <div class="section-heading"><button id="image-layout-toggle" class="image-layout-toggle" type="button" aria-label="Move image above sequence parameters" aria-controls="image-panel" aria-pressed="false" title="Move image above sequence parameters">&lt;</button><span class="section-index">02</span><h2>Simulation object & image</h2></div>
           <div class="object-selection">
             <label class="field-label" for="object">Object</label>
             <div class="select-wrap"><select id="object" disabled></select></div>
@@ -113,13 +113,12 @@
           <div id="mobile-roi-dock" class="mobile-roi-dock"></div>
           <div class="image-details">
             <div class="viewer-footer"><span>Magnitude image <span class="footer-divider">/</span> Global window level</span><span class="grayscale" aria-hidden="true"></span></div>
-            <p class="scroll-hint">Scroll over the image to change slices.</p>
             <p id="status" class="status" role="status" aria-live="polite">Loading the phantom once. All simulation runs in your browser.</p>
             <div class="pixel-inspector" aria-label="Voxel measurements">
               <div class="pixel-heading"><h3>Voxel values</h3><span id="pixel-position">Hover over the image</span></div>
               <dl class="pixel-values">
                 <div><dt>Raw signal</dt><dd id="pixel-signal">—</dd></div>
-                <div><dt>Magnitude</dt><dd id="pixel-magnitude">—</dd></div>
+                <div class="voxel-magnitude"><dt>Magnitude</dt><dd id="pixel-magnitude">—</dd></div>
                 <div><dt>Noise</dt><dd id="pixel-noise">—</dd></div>
                 <div><dt>Gray level / 255</dt><dd id="pixel-gray">—</dd></div>
                 <div><dt>ρ</dt><dd id="pixel-rho">—</dd></div>
