@@ -43,7 +43,7 @@ def run(url, screenshot):
             return page.locator("#mri-image").evaluate("c => c.toDataURL()")
 
         def wait_window():
-            page.wait_for_function("!document.getElementById('status').textContent.includes('Updating global window')")
+            page.wait_for_function("document.getElementById('image-stage').getAttribute('aria-busy') !== 'true'")
             assert 'Global window could not' not in page.locator('#status').inner_text()
 
         def slide(selector, value):

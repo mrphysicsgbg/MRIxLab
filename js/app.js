@@ -306,7 +306,7 @@ function render() {
     ? 'Signal is undefined at this parameter combination. Adjust TR or flip angle to continue.'
     : '';
   if (globalWindow.failed) elements.status.textContent = 'Global window could not be calculated. Reload to try again.';
-  else if (globalWindow.pending) elements.status.textContent += `${elements.status.textContent ? ' · ' : ''}Updating global window…`;
+  elements['image-stage'].setAttribute('aria-busy', String(Boolean(globalWindow.pending)));
   updatePixelReadout();
   roiController?.update(false);
   updateDiagram();
